@@ -1,0 +1,28 @@
+
+# First match wins
+# inspired by https://www.teltarif.de/i/sonderrufnummern.html
+zones:
+- "018":      '018.*'
+- "019":      '019.*'
+- "032":      '032.*'
+- "0137":     '0137.*'
+- "0700":     '070[01].*'
+- "0800":     '080[01].*'
+- "0900":     '0900.*'
+- "118xy":    '118\d\d.*'
+- "1180xy":   '1180\d\d.*'
+- "mobil":    '01[567].*'
+- "ausland":  '00.*'
+- "festnetz": '0?[1-9].*'
+
+postgres:
+  user:     root
+  database: database_single
+  unix:     /var/run/postgresql/.s.PGSQL.5432
+
+influx:
+  database:    pbx
+  username:    pbx
+  password:    topsecret
+  measurement: calls
+  url:         http://influxdb.example.com:8086/
