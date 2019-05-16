@@ -3,6 +3,11 @@
 This script aggregates call data records (CDRs) by SIP-Trunk and destination.
 The result is written to [InfluxDB](https://www.influxdata.com/products/influxdb-overview/) for further processing like drawing fancy graphs in [Grafana](https://grafana.com/).
 
+The records are aggregated by:
+* Direction (incoming/outgoing/internal)
+* Gateway (the SIP-Trunk)
+* Outgoing area code
+
 This script has been tested with 3CX version 15.5
 
 ## Dependencies

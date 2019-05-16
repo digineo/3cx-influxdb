@@ -13,6 +13,7 @@ if len(sys.argv) != 2:
   sys.exit(1)
 
 config        = yaml.load(open(sys.argv[1], 'r'))
+connection    = postgresql.open(**config['postgres'])
 influx        = config['influx']
 measurement   = influx['measurement']
 url           = "%swrite?db=%s&precision=s" % (influx['url'], influx['database'])
@@ -43,19 +44,22 @@ class Sampler:
         self.duration += duration
 
 
-def escapeTag(value):
+def escapeTag(key,value):
+  if value==None:
+    return ""
   value = re.sub('[^A-Za-z0-9 ]+', '', value.strip())
-  return re.sub(' ', '\\ ', value)
+  return "," + key + "=" + re.sub(' ', '\\ ', value)
 
 def clearTimeframe():
   global current_calls
 
   if current_calls:
-    for (gateway,zone), sampler in current_calls.items():
-      influxdata.append("%s,gateway=%s,zone=%s calls=%di,seconds=%di %d" % (
+    for (direction,gateway,zone), sampler in current_calls.items():
+      influxdata.append("%s,direction=%s%s%s calls=%di,seconds=%di %d" % (
         measurement,
-        escapeTag(gateway),
-        escapeTag(zone),
+        direction,
+        escapeTag('gateway',gateway),
+        escapeTag('zone',zone),
         sampler.count,
         sampler.duration,
         current_time,
@@ -64,29 +68,46 @@ def clearTimeframe():
   current_calls = defaultdict(Sampler)
 
 
-connection = postgresql.open(**config['postgres'])
+dn_gateways = {}
+
 rows = connection.query.rows("\
-  SELECT call_id, dst_dn, dst_caller_number, dst_start_time, dst_end_time, dst_answer_time, \
-    gateway.name AS gateway_name \
-  FROM cl_segments_view \
-  INNER JOIN dn           ON dn.value=dst_dn \
+  SELECT value, gateway.name AS gateway_name \
+  FROM dn \
   INNER JOIN externalline ON externalline.fkiddn = dn.iddn \
-  INNER JOIN gateway      ON gateway.idgateway = externalline.idexternalline \
-  WHERE dst_dn_type=1 \
-  ORDER BY dst_start_time")
+  INNER JOIN gateway      ON gateway.idgateway = externalline.idexternalline")
 
 for row in rows:
+  dn_gateways[row['value']] = row['gateway_name']
+
+# seg_type=2 answered call log segment
+rows = connection.query.rows("SELECT * FROM cl_segments_view WHERE seg_type=2 ORDER BY dst_start_time")
+
+for row in rows:
+  zone    = None
+  gateway = None
+
+  if row['src_dn_type'] == 1:
+    # call from extern
+    direction = 'incoming'
+    gateway   = dn_gateways[row['src_dn']]
+  elif row['dst_dn_type'] == 1:
+    # call to extern
+    direction = 'outgoing'
+    zone      = getZone(row['dst_caller_number'])
+    gateway   = dn_gateways[row['dst_dn']]
+  else:
+    # internal
+    direction = 'internal'
+
   # start time at the beginning of the hour
   ts       = calendar.timegm(row['dst_start_time'].replace(second=0, microsecond=0, minute=0).timetuple())
-  zone     = getZone(row['dst_caller_number'])
   duration = row['dst_end_time']-row['dst_answer_time']
-  gateway  = row['gateway_name']
 
   if current_time != ts:
     clearTimeframe()
     current_time  = ts
 
-  current_calls[(gateway,zone)].add(duration.seconds)
+  current_calls[(direction,gateway,zone)].add(duration.seconds)
 
 clearTimeframe()
 
@@ -101,3 +122,4 @@ response = requests.post(url,
 if response.status_code != 204:
   print(response.text)
   response.raise_for_status()
+
